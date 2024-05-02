@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const app = express();
+const dns = require("dns")
 const bodyParser = require('body-parser');
 const validUrl = require('valid-url');
 const mongoose = require('mongoose')
@@ -59,34 +60,42 @@ app.get('/api/hello', function(req, res) {
 });
 app.post('/api/shorturl', async (req, res) => {
   const url = req.body.url;
-
+  const urlObject = new URL(url);
+  const host = urlObject.hostname;
   // Check if the URL is valid
   if (!validUrl.isUri(url)) {
     return res.json({ error: 'invalid url' });
   }
 
-  try {
-    // Check if the URL already exists in the database
-    const existingUrl = await urls.findOne({ url: url });
-
-    if (existingUrl) {
-      // If the URL already exists, return its shortened version
-      return res.json({ original_url: existingUrl.url, short_url: existingUrl.shortenedUrl });
+  // Perform DNS lookup to verify the URL
+  dns.lookup(host, async (err, address, family) => {
+    if (err) {
+      return res.json({ error: 'invalid url' });
     }
 
-    // Generate a unique shortened URL
-    const shortenedUrl = await checkUnique(generateRandomString(6));
+    try {
+      // Check if the URL already exists in the database
+      const existingUrl = await urls.findOne({ url: url });
 
-    // Save the URL and its shortened version to the database
-    const newUrl = new urls({ url: url, shortenedUrl: shortenedUrl });
-    await newUrl.save();
+      if (existingUrl) {
+        // If the URL already exists, return its shortened version
+        return res.json({ original_url: existingUrl.url, short_url: existingUrl.shortenedUrl });
+      }
 
-    // Send the response with the original and shortened URLs
-    return res.json({ original_url: url, short_url: shortenedUrl });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
+      // Generate a unique shortened URL
+      const shortenedUrl = await checkUnique(generateRandomString(6));
+
+      // Save the URL and its shortened version to the database
+      const newUrl = new urls({ url: url, shortenedUrl: shortenedUrl });
+      await newUrl.save();
+
+      // Send the response with the original and shortened URLs
+      return res.json({ original_url: url, short_url: shortenedUrl });
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  });
 });
 
 app.get("/api/shorturl/:surl", (req, res) => {
